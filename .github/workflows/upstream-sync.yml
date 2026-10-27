@@ -117,8 +117,10 @@ jobs:
         run: |
           set -euo pipefail
           git remote add upstream https://github.com/Softeria/ms-365-mcp-server.git
-          git fetch --no-tags upstream "$UPSTREAM_SHA"
+          git fetch --no-tags upstream main
           git cat-file -e "$UPSTREAM_SHA^{commit}"
+          # Only ever merge a commit that is on upstream main.
+          git merge-base --is-ancestor "$UPSTREAM_SHA" upstream/main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           GIT_AUTHOR_DATE="$(git show -s --format=%cI "$UPSTREAM_SHA")"
