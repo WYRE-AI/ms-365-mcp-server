@@ -142,8 +142,20 @@ after one decode, with no double encoding.
 well-formed recipient. Conduit denies `send-draft-message`. A human must review every draft,
 including its recipients, in Outlook before sending.
 
-Message and event bodies are returned as text, capped, and wrapped in
-`<untrusted-content nonce="...">` markers: they are external content and must be treated as data.
+The following external content fields are escaped (`&`, `<`, `>`) and wrapped in
+`<untrusted-content nonce="...">` markers sharing one nonce per output; treat them as data:
+
+- `subject`, `bodyPreview`, `body.content`, and `uniqueBody.content` use the configured
+  content cap (default 20,000 characters). HTML bodies are converted to text first.
+- Every `emailAddress.name`, `location.displayName`, and `locations[].displayName`
+  uses a 256-character cap.
+- String `value` fields of entries in `internetMessageHeaders` arrays use a
+  2,000-character cap. Their string `name` fields are escaped and capped at 256 characters,
+  without wrapping.
+
+Caps apply after cleaning and escaping, before wrapping; truncated text gets a
+`[truncated N chars]` suffix. Unrelated `name` and `displayName` fields, including
+folder and calendar names, are unchanged.
 
 ## Errors
 

@@ -10,7 +10,7 @@ export function protectContent(input: unknown, maxChars = 20000, addNotice = tru
       text = text.slice(0, limit) + `[truncated ${text.length - limit} chars]`;
     return text;
   };
-  const wrap = (text: string, html = false): string => {
+  const wrap = (text: string, html = false, limit = maxChars): string => {
     if (html) {
       // A single scan avoids backtracking on malformed or unterminated tags.
       let output = '',
@@ -42,21 +42,25 @@ export function protectContent(input: unknown, maxChars = 20000, addNotice = tru
         }
       );
     }
-    text = escape(text, maxChars);
+    text = escape(text, limit);
     return `<untrusted-content nonce="${nonce}">\n${text}\n</untrusted-content nonce="${nonce}">`;
   };
-  const walk = (value: unknown, parentKey?: string): unknown => {
-    if (Array.isArray(value)) return value.map((item) => walk(item, parentKey));
+  const walk = (value: unknown, parentKey?: string, headerEntry = false): unknown => {
+    if (Array.isArray(value))
+      return value.map((item) => walk(item, parentKey, parentKey === 'internetMessageHeaders'));
     if (!value || typeof value !== 'object') return value;
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value)) {
-      if ((key === 'bodyPreview' || key === 'subject') && typeof v === 'string') out[key] = wrap(v);
+      if (headerEntry && key === 'value' && typeof v === 'string') out[key] = wrap(v, false, 2000);
+      else if (headerEntry && key === 'name' && typeof v === 'string') out[key] = escape(v, 256);
+      else if ((key === 'bodyPreview' || key === 'subject') && typeof v === 'string')
+        out[key] = wrap(v);
       else if (
         typeof v === 'string' &&
         ((key === 'name' && parentKey === 'emailAddress') ||
           (key === 'displayName' && (parentKey === 'location' || parentKey === 'locations')))
       )
-        out[key] = escape(v, 256);
+        out[key] = wrap(v, false, 256);
       else if (
         (key === 'body' || key === 'uniqueBody') &&
         v &&
