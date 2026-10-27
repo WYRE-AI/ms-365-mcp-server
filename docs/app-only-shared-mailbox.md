@@ -163,6 +163,36 @@ Caps apply after cleaning and escaping, before wrapping; truncated text gets a
 `[truncated N chars]` suffix. Unrelated `name` and `displayName` fields, including
 folder and calendar names, are unchanged.
 
+### Consumer note: wrapped name fields
+
+Since security round 2, sender/recipient/organizer/attendee `emailAddress.name`,
+`location.displayName`, and `locations[].displayName` are returned with HTML entities
+(`&amp;`, `&lt;`, `&gt;`) inside
+`<untrusted-content nonce="...">\n...\n</untrusted-content nonce="...">` markers.
+The cleaned, escaped text is capped at 256 characters before the truncation suffix and
+markers are added. `emailAddress.address` is **not wrapped** and remains unchanged.
+
+Conduit consumers that display or compare names must strip the markers and decode the
+entities. Names must never be used for authorization; match on `emailAddress.address`
+instead. Decoded names remain untrusted text and must be rendered as text.
+
+Before (Graph):
+
+```json
+{ "emailAddress": { "name": "Ann & <Bob>", "address": "ann@example.com" } }
+```
+
+After (tool JSON; illustrative response nonce):
+
+```json
+{
+  "emailAddress": {
+    "name": "<untrusted-content nonce=\"0123456789abcdef0123456789abcdef\">\nAnn &amp; &lt;Bob&gt;\n</untrusted-content nonce=\"0123456789abcdef0123456789abcdef\">",
+    "address": "ann@example.com"
+  }
+}
+```
+
 ## Errors
 
 | Code                                             | When                                                                                                                                                  |
