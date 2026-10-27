@@ -1,8 +1,9 @@
 name: Upstream sync
 
 # WYRE-AI fork: weekly merge of Softeria/ms-365-mcp-server main into a sync
-# branch. Merge (never rebase), run the app-only tests, and open a DRAFT PR
-# labelled `hold` only when the merge is clean and the tests pass.
+# branch. A read-only verify job merges and tests unreviewed upstream code.
+# A separate write-enabled job recomputes the merge from refs, verifies its SHA,
+# and opens a DRAFT PR labelled `hold` without executing repository code.
 #
 # Notes:
 # - PRs opened with GITHUB_TOKEN do not trigger other workflows; re-run CI on
@@ -23,50 +24,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sync:
+  verify:
     if: github.repository == 'WYRE-AI/ms-365-mcp-server'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # push the sync branch
-      pull-requests: write # open the draft PR
+      contents: read
+    outputs:
+      base_sha: ${{ steps.merge.outputs.base_sha }}
+      upstream_sha: ${{ steps.merge.outputs.upstream_sha }}
+      merge_sha: ${{ steps.merge.outputs.merge_sha }}
+      changed: ${{ steps.merge.outputs.changed }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Merge upstream main
         id: merge
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BASE_SHA="$(git rev-parse HEAD)"
           git remote add upstream https://github.com/Softeria/ms-365-mcp-server.git
           git fetch --no-tags upstream main
           UPSTREAM_SHA="$(git rev-parse upstream/main)"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
-          if git merge-base --is-ancestor "$UPSTREAM_SHA" HEAD; then
+          if git merge-base --is-ancestor "$UPSTREAM_SHA" "$BASE_SHA"; then
             echo "Already up to date with upstream $UPSTREAM_SHA"
+            echo "merge_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          BRANCH="sync/upstream-${UPSTREAM_SHA:0:12}"
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-            echo "Sync branch $BRANCH already exists"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git switch -c "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          GIT_AUTHOR_DATE="$(git show -s --format=%cI "$UPSTREAM_SHA")"
+          GIT_COMMITTER_DATE="$GIT_AUTHOR_DATE"
+          export GIT_AUTHOR_DATE GIT_COMMITTER_DATE
           # A conflict fails the job here: no branch is pushed and no PR opened.
-          git merge --no-ff --no-edit -m "chore: merge upstream Softeria/ms-365-mcp-server@${UPSTREAM_SHA:0:12}" upstream/main
+          git merge --no-ff --no-edit -m "chore: merge upstream Softeria/ms-365-mcp-server@${UPSTREAM_SHA:0:12}" "$UPSTREAM_SHA"
+          MERGE_SHA="$(git rev-parse HEAD)"
+          echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         if: steps.merge.outputs.changed == 'true'
         with:
           node-version: 24.x
-          cache: npm
 
       - name: Verify (app-only tests plus upstream checks)
         if: steps.merge.outputs.changed == 'true'
@@ -79,16 +84,58 @@ jobs:
           npm run build
           npx vitest run test/app-only
 
-      - name: Push sync branch and open draft PR
-        if: steps.merge.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ steps.merge.outputs.branch }}
-          UPSTREAM_SHA: ${{ steps.merge.outputs.upstream_sha }}
+  open-pr:
+    needs: verify
+    if: github.repository == 'WYRE-AI/ms-365-mcp-server' && needs.verify.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the sync branch
+      pull-requests: write # open the draft PR
+    env:
+      BASE_SHA: ${{ needs.verify.outputs.base_sha }}
+      UPSTREAM_SHA: ${{ needs.verify.outputs.upstream_sha }}
+      MERGE_SHA: ${{ needs.verify.outputs.merge_sha }}
+    steps:
+      - name: Validate commit SHAs
         run: |
           set -euo pipefail
-          git push origin "$BRANCH"
+          for sha in "$BASE_SHA" "$UPSTREAM_SHA" "$MERGE_SHA"; do
+            if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Invalid commit SHA" >&2
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ env.BASE_SHA }}
+          fetch-depth: 0
+
+      - name: Recompute merge and open draft PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/Softeria/ms-365-mcp-server.git
+          git fetch --no-tags upstream "$UPSTREAM_SHA"
+          git cat-file -e "$UPSTREAM_SHA^{commit}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          GIT_AUTHOR_DATE="$(git show -s --format=%cI "$UPSTREAM_SHA")"
+          GIT_COMMITTER_DATE="$GIT_AUTHOR_DATE"
+          export GIT_AUTHOR_DATE GIT_COMMITTER_DATE
+          git merge --no-ff --no-edit -m "chore: merge upstream Softeria/ms-365-mcp-server@${UPSTREAM_SHA:0:12}" "$UPSTREAM_SHA"
+          if [[ "$(git rev-parse HEAD)" != "$MERGE_SHA" ]]; then
+            echo "Recomputed merge does not match tested SHA" >&2
+            exit 1
+          fi
+          BRANCH="sync/upstream-${UPSTREAM_SHA:0:12}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "Sync branch $BRANCH already exists"
+            exit 0
+          fi
+          git push origin "HEAD:refs/heads/$BRANCH"
           gh label create hold --color B60205 --description "Do not merge" 2>/dev/null || true
           gh pr create --draft --base main --head "$BRANCH" --label hold \
             --title "chore: sync upstream Softeria/ms-365-mcp-server@${UPSTREAM_SHA:0:12}" \
-            --body "Automated weekly merge of upstream main (${UPSTREAM_SHA}) into the fork. The merge was clean and the app-only tests passed on the merge commit. Review the upstream changes for anything that touches the hooks in src/index.ts / src/cli.ts or the app-only surface, then re-run CI before marking ready."
+            --body "Automated weekly merge of upstream main (${UPSTREAM_SHA}) into the fork. The merge was clean and the app-only tests passed on the merge commit. Review the upstream changes for anything that touches the hooks in src/index.ts / src/cli.ts or the app-only surface, then re-run CI before marking ready. The merge commit was recomputed from refs and verified equal to the tested SHA ${MERGE_SHA}."
