@@ -15,7 +15,8 @@ on:
 
 jobs:
   release:
-    if: github.event_name == 'push'
+    # WYRE-AI fork: never publish npm, MCP Registry or ghcr releases from the fork.
+    if: github.repository == 'Softeria/ms-365-mcp-server' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -59,7 +60,7 @@ jobs:
   # for the next release.
   publish-registry:
     needs: release
-    if: ${{ !cancelled() && (inputs.registry_version != '' || needs.release.outputs.version != '') }}
+    if: ${{ github.repository == 'Softeria/ms-365-mcp-server' && !cancelled() && (inputs.registry_version != '' || needs.release.outputs.version != '') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -132,7 +133,7 @@ jobs:
   # with workflow_dispatch instead of waiting for the next release.
   publish-docker:
     needs: release
-    if: ${{ !cancelled() && (inputs.docker_version != '' || needs.release.outputs.version != '') }}
+    if: ${{ github.repository == 'Softeria/ms-365-mcp-server' && !cancelled() && (inputs.docker_version != '' || needs.release.outputs.version != '') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

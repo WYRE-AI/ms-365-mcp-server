@@ -1,0 +1,78 @@
+# WYRE-AI fleet image for the app-only shared-mailbox mode (m365-shared-mailbox-mcp).
+# Upstream's Dockerfile / Dockerfile.ghcr are left untouched for upstream syncs.
+#
+# Build: docker build -f Dockerfile.app-only -t m365-shared-mailbox-mcp .
+# No private packages and no registry token are needed.
+FROM node:26-alpine AS builder
+
+ARG VERSION="unknown"
+ARG COMMIT_SHA="unknown"
+ARG BUILD_DATE="unknown"
+
+WORKDIR /app
+
+COPY package*.json ./
+# --ignore-scripts: no lifecycle scripts before the source is copied.
+RUN npm ci --ignore-scripts
+
+COPY . .
+
+# The app-only entry (dist/app-only/main.js) never loads the generated Graph
+# client, so `npm run generate` (which downloads Microsoft's OpenAPI spec at
+# build time) is not needed here. tsup builds every file unbundled.
+RUN npm run build
+
+# Runtime-only node_modules for the production stage.
+RUN npm prune --omit=dev --ignore-scripts && npm cache clean --force
+
+FROM node:26-alpine AS production
+
+RUN apk -U upgrade --no-cache
+
+RUN addgroup -g 1001 -S m365 && \
+    adduser -S m365 -u 1001 -G m365
+
+WORKDIR /app
+
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/LICENSE /app/NOTICE ./
+
+# Runtime only needs `node`; drop npm/npx (scanner noise, smaller surface).
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
+    chown -R m365:m365 /app
+
+USER m365
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# 0.0.0.0 is safe only because startup refuses to listen without a real
+# CONDUIT_S2S_SECRET. Credentials arrive per request on X-M365-* headers;
+# nothing is read from image env. Draft-only (write tier) by default.
+ENV NODE_ENV=production
+ENV MS365_MCP_APP_ONLY_SHARED_MAILBOX=1
+ENV MCP_HTTP_PORT=8080
+ENV MCP_HTTP_HOST=0.0.0.0
+ENV M365_APP_ONLY_MAX_TIER=write
+
+CMD ["node", "dist/app-only/main.js"]
+
+ARG VERSION="unknown"
+ARG COMMIT_SHA="unknown"
+ARG BUILD_DATE="unknown"
+
+LABEL maintainer="engineering@wyre.ai"
+LABEL version="${VERSION}"
+LABEL org.opencontainers.image.title="m365-shared-mailbox-mcp"
+LABEL org.opencontainers.image.description="App-only Microsoft 365 shared-mailbox MCP server (WYRE-AI fork of Softeria ms-365-mcp-server)"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
+LABEL org.opencontainers.image.source="https://github.com/WYRE-AI/ms-365-mcp-server"
+LABEL org.opencontainers.image.documentation="https://github.com/WYRE-AI/ms-365-mcp-server/blob/main/docs/app-only-shared-mailbox.md"
+LABEL org.opencontainers.image.vendor="Wyre Technology"
+LABEL org.opencontainers.image.licenses="MIT"

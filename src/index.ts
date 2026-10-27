@@ -40,6 +40,14 @@ process.on('uncaughtException', (err, origin) => {
 
 async function main(): Promise<void> {
   try {
+    if (
+      process.argv.includes('--app-only-shared-mailbox') ||
+      ['1', 'true'].includes(process.env.MS365_MCP_APP_ONLY_SHARED_MAILBOX ?? '')
+    ) {
+      const { start } = await import('./app-only/main.js');
+      await start();
+      return;
+    }
     loadEnvFile();
 
     const args = parseArgs();
