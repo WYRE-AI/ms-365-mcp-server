@@ -3,7 +3,8 @@
 #
 # Build: docker build -f Dockerfile.app-only -t m365-shared-mailbox-mcp .
 # No private packages and no registry token are needed.
-FROM node:26-alpine AS builder
+# Refresh both pins with the multi-arch index digest from `docker buildx imagetools inspect node:26-alpine`.
+FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS builder
 
 ARG VERSION="unknown"
 ARG COMMIT_SHA="unknown"
@@ -25,7 +26,7 @@ RUN npm run build
 # Runtime-only node_modules for the production stage.
 RUN npm prune --omit=dev --ignore-scripts && npm cache clean --force
 
-FROM node:26-alpine AS production
+FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS production
 
 RUN apk -U upgrade --no-cache
 
