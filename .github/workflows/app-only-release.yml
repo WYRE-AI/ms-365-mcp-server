@@ -1,0 +1,184 @@
+name: App-only image release
+
+# WYRE-AI fork: image for m365-shared-mailbox-mcp. Manual only. Never runs on
+# pull requests or pushes. By default (publish=false) it builds, scans and
+# produces an SBOM WITHOUT pushing anything. publish=true pushes to
+# ghcr.io/wyre-ai/m365-shared-mailbox-mcp from main, signs the pushed digest
+# with cosign (keyless) and attaches the SBOM as a signed attestation.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Push, sign and attest the image (main only). Leave false for a dry run.'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/wyre-ai/m365-shared-mailbox-mcp
+
+jobs:
+  verify:
+    if: github.repository == 'WYRE-AI/ms-365-mcp-server'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - name: App-only tests gate the image
+        run: npx vitest run test/app-only
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=app-only-{{date 'YYYYMMDD'}}
+
+      - name: Build date
+        id: date
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build local image
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: Dockerfile.app-only
+          platforms: linux/amd64
+          push: false
+          load: true
+          # Single-platform image manifest; no attestation-manifest sibling
+          # (see the fleet's 2026-07-23 digest outage).
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=app-only-${{ github.sha }}
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.date.outputs.value }}
+
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ format('{0}:sha-{1}', env.IMAGE_NAME, github.sha) }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: sbom-verify
+          upload-artifact: true
+          upload-release-assets: false
+
+      - name: Trivy scan (report only)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ${{ format('{0}:sha-{1}', env.IMAGE_NAME, github.sha) }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+  publish:
+    needs: verify
+    if: inputs.publish == true && github.ref == 'refs/heads/main' && github.repository == 'WYRE-AI/ms-365-mcp-server'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to ghcr
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=app-only-{{date 'YYYYMMDD'}}
+
+      - name: Build date
+        id: date
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: Dockerfile.app-only
+          platforms: linux/amd64
+          push: true
+          # Single-platform image manifest; no attestation-manifest sibling
+          # (see the fleet's 2026-07-23 digest outage).
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=app-only-${{ github.sha }}
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.date.outputs.value }}
+
+      - name: Resolve and verify real image digest
+        id: digest
+        env:
+          TAG: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          DIGEST="$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' | jq -r '.digest')"
+          case "$DIGEST" in sha256:*) ;; *) echo "::error::No digest for $TAG"; exit 1 ;; esac
+          if ! docker buildx imagetools inspect "${IMAGE_NAME}@${DIGEST}" --format '{{json .Image}}' \
+               | jq -e '(.config.Env // []) | length > 0' >/dev/null; then
+            echo "::error::$DIGEST is not a runnable image config"; exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "### Image digest" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${IMAGE_NAME}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ format('{0}@{1}', env.IMAGE_NAME, steps.digest.outputs.digest) }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: sbom-publish
+          upload-artifact: true
+          upload-release-assets: false
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign digest and attest SBOM (keyless)
+        env:
+          REF: ${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "$REF"
+          cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$REF"

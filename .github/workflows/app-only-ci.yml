@@ -1,0 +1,75 @@
+name: App-only CI
+
+# WYRE-AI fork: tests and a local (never pushed) image build for the app-only
+# shared-mailbox mode. Upstream's build.yml still runs the full suite.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-only-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x, 24.x]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - name: App-only contract and security tests
+        run: npx vitest run test/app-only
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Build image (load only, no push)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: Dockerfile.app-only
+          push: false
+          load: true
+          provenance: false
+          tags: m365-shared-mailbox-mcp:ci
+          build-args: |
+            VERSION=ci
+            COMMIT_SHA=${{ github.sha }}
+      - name: Smoke test the container
+        run: |
+          set -euo pipefail
+          # Throwaway value for this job only; not a credential.
+          S2S="$(openssl rand -hex 32)"
+          docker run -d --name sm -p 18080:8080 -e CONDUIT_S2S_SECRET="$S2S" m365-shared-mailbox-mcp:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' http://127.0.0.1:18080/mcp)" = 401
+          test "$(docker exec sm id -u)" = 1001
+          if docker exec sm sh -c 'command -v npm' >/dev/null 2>&1; then echo "npm present in image" && exit 1; fi
+          docker logs sm
+          docker rm -f sm
+      - name: Container refuses to start without an S2S secret
+        run: |
+          if docker run --rm m365-shared-mailbox-mcp:ci; then
+            echo "container started without CONDUIT_S2S_SECRET" && exit 1
+          fi

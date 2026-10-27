@@ -1,0 +1,20 @@
+ms-365-mcp-server (WYRE-AI fork)
+
+This repository is a fork of Softeria/ms-365-mcp-server
+(https://github.com/Softeria/ms-365-mcp-server), Copyright (c) 2025 Softeria,
+licensed under the MIT License (see LICENSE, kept unchanged).
+
+Forked from upstream commit 08d8977ba9d229ce164d267848ab3b74a52d0c23.
+
+WYRE-AI additions (MIT, Copyright (c) 2026 Wyre Technology):
+
+- src/app-only/ and test/app-only/: app-only shared-mailbox mode
+  (m365-shared-mailbox-mcp), off by default.
+- src/app-only/schemas.ts: strict argument schemas ported from the WYRE-AI
+  Conduit gateway so both layers enforce the same contract.
+- src/app-only/s2s-verify.ts: gateway service-to-service verification ported
+  from WYRE-AI/proofpoint-essentials-mcp.
+- Dockerfile.app-only, docs/app-only-shared-mailbox.md and the app-only-\*,
+  upstream-sync GitHub workflows.
+
+All upstream code remains the work of Softeria and its contributors.

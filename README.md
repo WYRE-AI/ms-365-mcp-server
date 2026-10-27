@@ -7,6 +7,12 @@ Microsoft 365 MCP Server
 A Model Context Protocol (MCP) server for interacting with Microsoft 365 and Microsoft Office services through the Graph
 API.
 
+## WYRE-AI fork: app-only shared-mailbox mode
+
+This is a fork of [Softeria/ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server), based on upstream commit `08d8977`.
+Licensed under MIT; credit to Softeria (see [NOTICE](NOTICE)). App-only shared-mailbox mode is **OFF by default**.
+See [setup instructions](docs/app-only-shared-mailbox.md), including Exchange Online RBAC for Applications.
+
 ## Supported Clouds
 
 This server supports multiple Microsoft cloud environments:

@@ -23,7 +23,8 @@ function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      return ['generated', '__tests__'].includes(entry.name) ? [] : sourceFiles(full);
+      // The app-only route table is pinned to the Conduit contract fixture, not endpoints.json.
+      return ['generated', '__tests__', 'app-only'].includes(entry.name) ? [] : sourceFiles(full);
     }
     return entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [full] : [];
   });
