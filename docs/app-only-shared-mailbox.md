@@ -19,20 +19,20 @@ mailbox. Do **not** grant tenant-wide Microsoft Graph `Mail.*`, `Calendars.*` or
   No other CLI flag is accepted in this mode, and startup fails if upstream auth settings such as
   extra scopes, trust-proxy auth, OBO or OAuth are present in the environment.
 
-| Variable                           | Default            | Meaning                                                                                                                                                   |
-| ---------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CONDUIT_S2S_SECRET`               | required           | Gateway service-to-service secret. Empty or a known placeholder refuses startup.                                                                          |
-| `MCP_ALLOW_INSECURE_DEV`           | unset              | `1` allows an empty secret for local development only, and forces `127.0.0.1`.                                                                            |
-| `MCP_HTTP_HOST` / `MCP_HTTP_PORT`  | `0.0.0.0` / `8080` | Listen address.                                                                                                                                           |
-| `M365_APP_ONLY_MAX_TIER`           | `write`            | `read`, `write` or `admin`. Tools above the tier are not listed and cannot be called. `READ_ONLY_MODE=true` forces `read`.                                |
-| `M365_APP_ONLY_PINNED_MAILBOX`     | unset              | The hard pin: the only mailbox this instance will serve. Set in production; one instance per mailbox.                                                     |
-| `M365_APP_ONLY_BIND_MAILBOX`       | `1`                | Best-effort, in-memory, per-process secondary guard; binds only after successful token acquisition and consent check (see [Mailbox lock](#mailbox-lock)). |
-| `M365_APP_ONLY_BIND_TTL_SECONDS`   | `3600`             | Lifetime since the last successful token acquisition and consent check for that binding.                                                                  |
-| `M365_APP_ONLY_MAX_BODY_CHARS`     | `20000`            | Per-body cap after HTML-to-text.                                                                                                                          |
-| `M365_APP_ONLY_MAX_RESPONSE_BYTES` | `4000000`          | Cap on any Graph response read.                                                                                                                           |
-| `M365_APP_ONLY_MAX_PAGES`          | `10`               | Page cap for `fetchAllPages`.                                                                                                                             |
-| `M365_APP_ONLY_MAX_REQUEST_BYTES`  | `5000000`          | Cap on an incoming MCP request body.                                                                                                                      |
-| `M365_APP_ONLY_LOG_LEVEL`          | `info`             | JSON log level.                                                                                                                                           |
+| Variable                           | Default            | Meaning                                                                                                                                                                                        |
+| ---------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CONDUIT_S2S_SECRET`               | required           | Gateway service-to-service secret: at least 32 characters after trimming. Known placeholders refuse startup; empty requires the local development exception below.                             |
+| `MCP_ALLOW_INSECURE_DEV`           | unset              | `1` allows an empty secret outside production and forces `127.0.0.1`. Any non-empty value other than `0`/`false` is refused when `NODE_ENV=production` (case-insensitive), even with a secret. |
+| `MCP_HTTP_HOST` / `MCP_HTTP_PORT`  | `0.0.0.0` / `8080` | Listen address.                                                                                                                                                                                |
+| `M365_APP_ONLY_MAX_TIER`           | `write`            | `read`, `write` or `admin`. Tools above the tier are not listed and cannot be called. `READ_ONLY_MODE=true` forces `read`.                                                                     |
+| `M365_APP_ONLY_PINNED_MAILBOX`     | unset              | The hard pin: the only mailbox this instance will serve. Set in production; one instance per mailbox.                                                                                          |
+| `M365_APP_ONLY_BIND_MAILBOX`       | `1`                | Best-effort, in-memory, per-process secondary guard; binds only after successful token acquisition and consent check (see [Mailbox lock](#mailbox-lock)).                                      |
+| `M365_APP_ONLY_BIND_TTL_SECONDS`   | `3600`             | Lifetime since the last successful token acquisition and consent check for that binding.                                                                                                       |
+| `M365_APP_ONLY_MAX_BODY_CHARS`     | `20000`            | Per-body cap after HTML-to-text.                                                                                                                                                               |
+| `M365_APP_ONLY_MAX_RESPONSE_BYTES` | `4000000`          | Cap on any Graph response read.                                                                                                                                                                |
+| `M365_APP_ONLY_MAX_PAGES`          | `10`               | Page cap for `fetchAllPages`.                                                                                                                                                                  |
+| `M365_APP_ONLY_MAX_REQUEST_BYTES`  | `5000000`          | Cap on an incoming MCP request body.                                                                                                                                                           |
+| `M365_APP_ONLY_LOG_LEVEL`          | `info`             | JSON log level.                                                                                                                                                                                |
 
 ## HTTP surface
 

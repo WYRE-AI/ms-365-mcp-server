@@ -17,7 +17,7 @@ import { protectContent } from '../../src/app-only/untrusted.js';
 import { verifyS2sHeader } from '../../src/app-only/s2s-verify.js';
 const tenant = '11111111-1111-1111-1111-111111111111',
   client = '22222222-2222-2222-2222-222222222222';
-const secret = 'a-real-test-s2s-key';
+const secret = 'test-s2s-secret-0123456789abcdef0123';
 const env = {
   MS365_MCP_APP_ONLY_SHARED_MAILBOX: '1',
   CONDUIT_S2S_SECRET: secret,
@@ -552,6 +552,66 @@ describe('Graph', () => {
       'shared@acme.com',
     ])
       expect(s.logs.join('')).not.toContain(value);
+  });
+});
+describe('security round 1: F6 guard', () => {
+  for (const NODE_ENV of ['production', 'Production'])
+    for (const CONDUIT_S2S_SECRET of ['', secret])
+      it.each(['1', 'true', 'TRUE', 'yes', ' '])(
+        `refuses insecure dev %s in ${NODE_ENV} with secret length ${CONDUIT_S2S_SECRET.length}`,
+        (MCP_ALLOW_INSECURE_DEV) => {
+          expect(() =>
+            guardAppOnly({ ...env, NODE_ENV, CONDUIT_S2S_SECRET, MCP_ALLOW_INSECURE_DEV }, [])
+          ).toThrow('MCP_ALLOW_INSECURE_DEV is refused when NODE_ENV=production');
+        }
+      );
+  it.each(['', '0', 'false', 'FALSE'])('allows disabled insecure dev %s in production', (value) => {
+    expect(() =>
+      guardAppOnly({ ...env, NODE_ENV: 'production', MCP_ALLOW_INSECURE_DEV: value }, [])
+    ).not.toThrow();
+  });
+  it.each([undefined, 'development', 'test'])(
+    'forces loopback for empty-secret dev in %s',
+    (NODE_ENV) => {
+      expect(
+        guardAppOnly(
+          {
+            ...env,
+            NODE_ENV,
+            CONDUIT_S2S_SECRET: ' ',
+            MCP_ALLOW_INSECURE_DEV: '1',
+            MCP_HTTP_HOST: '0.0.0.0',
+          },
+          []
+        )
+      ).toEqual({ secret: '', host: '127.0.0.1' });
+    }
+  );
+  it.each([undefined, '0', 'false', 'true', 'yes'])(
+    'requires exactly 1 for empty-secret dev (%s)',
+    (value) => {
+      expect(() =>
+        guardAppOnly({ ...env, CONDUIT_S2S_SECRET: '', MCP_ALLOW_INSECURE_DEV: value }, [])
+      ).toThrow('CONDUIT_S2S_SECRET is empty');
+    }
+  );
+  it('rejects a 31-character secret after trimming even in insecure dev', () => {
+    expect(() =>
+      guardAppOnly(
+        { ...env, CONDUIT_S2S_SECRET: ` ${'x'.repeat(31)} `, MCP_ALLOW_INSECURE_DEV: '1' },
+        []
+      )
+    ).toThrow('CONDUIT_S2S_SECRET must be at least 32 characters');
+  });
+  it('accepts a 32-character secret after trimming', () => {
+    expect(guardAppOnly({ ...env, CONDUIT_S2S_SECRET: ` ${'x'.repeat(32)} ` }, []).secret).toBe(
+      'x'.repeat(32)
+    );
+  });
+  it('still rejects known placeholders before checking length', () => {
+    expect(() => guardAppOnly({ ...env, CONDUIT_S2S_SECRET: ' PLACEHOLDER ' }, [])).toThrow(
+      'CONDUIT_S2S_SECRET is a known placeholder'
+    );
   });
 });
 describe('pure security guards', () => {

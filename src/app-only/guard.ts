@@ -28,6 +28,12 @@ export function guardAppOnly(
     )
       throw new Error(`App-only mode refuses ${key}`);
   }
+  if (
+    env.NODE_ENV?.toLowerCase() === 'production' &&
+    env.MCP_ALLOW_INSECURE_DEV &&
+    !['0', 'false'].includes(env.MCP_ALLOW_INSECURE_DEV.toLowerCase())
+  )
+    throw new Error('MCP_ALLOW_INSECURE_DEV is refused when NODE_ENV=production');
   const secret = (env.CONDUIT_S2S_SECRET ?? '').trim();
   if (
     [
@@ -44,6 +50,8 @@ export function guardAppOnly(
     ].includes(secret.toLowerCase())
   )
     throw new Error('CONDUIT_S2S_SECRET is a known placeholder');
+  if (secret && secret.length < 32)
+    throw new Error('CONDUIT_S2S_SECRET must be at least 32 characters');
   if (!secret && env.MCP_ALLOW_INSECURE_DEV !== '1') throw new Error('CONDUIT_S2S_SECRET is empty');
   return { secret, host: !secret ? '127.0.0.1' : env.MCP_HTTP_HOST || '0.0.0.0' };
 }
