@@ -7035,6 +7035,12 @@
       "tool": "list-mail-messages",
       "reason": "filter-literal",
       "args": { "top": 10, "filter": "contains(subject,'$expand=x')" }
+    },
+    {
+      "tool": "list-mail-messages",
+      "reason": "filter-literal-encode-once",
+      "note": "Sidecar contract test must assert Graph receives exactly one $filter, no $expand, and this literal unchanged.",
+      "args": { "top": 10, "filter": "subject eq 'x&$expand=attachments'" }
     }
   ]
 }

@@ -55,6 +55,10 @@ before anything else happens.
 | `X-M365-Client-Cert-Key` + `X-M365-Client-Cert-Thumbprint` | Base64 of an unencrypted PKCS#8 PEM private key, and the cert's SHA-256 thumbprint |
 | `X-M365-Mailbox`                                           | The shared mailbox's primary SMTP address                                          |
 
+The certificate pair promised to Conduit is exactly `X-M365-Client-Cert-Key` and
+`X-M365-Client-Cert-Thumbprint`. Shorter names such as `X-M365-Cert-Key` and
+`X-M365-Cert-Thumbprint` are ignored. Conduit currently sends only the client-secret form.
+
 Sending a secret and a certificate together is `400 bad_credentials:client_secret_and_certificate`.
 Other malformed values are `400 bad_credentials:<field>`; a missing mailbox header is
 `401 bad_credentials:mailbox`. Credentials are never read from the environment in this mode.
@@ -99,7 +103,7 @@ resources or prompts.
   `decline-calendar-event`, `tentatively-accept-calendar-event`, `cancel-calendar-event`,
   `forward-calendar-event`.
 
-Arguments follow the contract from WYRE-AI/conduit #2264 @16e0d682. Strict schemas reject
+Arguments follow the contract from WYRE-AI/conduit #2264 @4c5f375c. Strict schemas reject
 unknown keys at every level. Arguments are parsed once; JSON-encoded objects or arrays in string
 fields are rejected. A rejected call returns JSON-RPC `-32602 invalid_arguments`, with no token
 request or Graph call.
@@ -121,6 +125,10 @@ request or Graph call.
   manual query-pair concatenation.
 
 The fixture test iterates `tools`/`validExample`, `mustReject`, `mustAccept` and `hardDisabledTools`.
+
+R6-2 (encode-once filter literal pilot gate) checks the `filter-literal-encode-once` fixture
+end-to-end: Graph receives exactly one `$filter`, no `$expand`, and the unchanged literal
+after one decode, with no double encoding.
 
 **Pilot runbook:** `create-draft-email`, `create-forward-draft` and `update-mail-message` accept any
 well-formed recipient. Conduit denies `send-draft-message`. A human must review every draft,

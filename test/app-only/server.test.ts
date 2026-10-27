@@ -154,6 +154,41 @@ describe('contract', () => {
     }
   });
 });
+describe('contract round 6 (conduit 4c5f375c, R6-2 pilot gate)', () => {
+  it('encodes the fixture filter literal exactly once in the outgoing Graph query', async () => {
+    const entry = fixture.mustAccept.find((entry) => entry.reason === 'filter-literal-encode-once');
+    expect(entry, 'missing filter-literal-encode-once fixture entry').toBeDefined();
+    const literal = "subject eq 'x&$expand=attachments'";
+    expect(entry!.tool).toBe('list-mail-messages');
+    expect(entry!.args).toEqual({ filter: literal, top: 10 });
+    const s = await setup();
+    const r = await s.call(entry!.tool, entry!.args);
+    expect(r.body.error).toBeUndefined();
+    expect(r.body.result.isError).not.toBe(true);
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+    const rawUrl = String(s.fetchImpl.mock.calls[0][0]);
+    const decode = (value: string) => decodeURIComponent(value.replace(/\+/g, ' '));
+    const pairs = rawUrl
+      .slice(rawUrl.indexOf('?') + 1)
+      .split('&')
+      .map((pair) => {
+        const separator = pair.indexOf('=');
+        expect(separator).toBeGreaterThanOrEqual(0);
+        return { key: decode(pair.slice(0, separator)), value: pair.slice(separator + 1) };
+      });
+    expect(pairs.map(({ key }) => key).sort()).toEqual(['$filter', '$top']);
+    expect(pairs.filter(({ key }) => key === '$filter')).toHaveLength(1);
+    expect(pairs.some(({ key }) => key === '$expand')).toBe(false);
+    expect(decode(pairs.find(({ key }) => key === '$top')!.value)).toBe('10');
+    const rawFilter = pairs.find(({ key }) => key === '$filter')!.value;
+    expect(decode(rawFilter)).toBe(literal);
+    expect(rawFilter).not.toMatch(/%25/i);
+    expect(rawFilter).not.toMatch(/[&$#]/);
+    const url = new URL(rawUrl);
+    expect(url.searchParams.getAll('$filter')).toEqual([literal]);
+    expect(url.searchParams.has('$expand')).toBe(false);
+  });
+});
 describe('contract round 3-5', () => {
   it('routes every mustAccept filter as exactly one query value', async () => {
     const s = await setup();
@@ -320,6 +355,27 @@ describe('HTTP boundaries', () => {
       );
       expect(r.body.error.message).toBe(`bad_credentials:client_cert_${field}`);
     }
+  });
+  it('ignores legacy short certificate headers without acquiring a token', async () => {
+    const s = await setup();
+    const { privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+    const r = await s.call(
+      'list-mail-messages',
+      {},
+      {
+        'x-m365-client-secret': undefined,
+        'x-m365-cert-key': Buffer.from(privateKey).toString('base64'),
+        'x-m365-cert-thumbprint': 'ab'.repeat(32),
+      }
+    );
+    expect(r.status).toBe(400);
+    expect(r.body.error.message).toBe('bad_credentials:client_secret');
+    expect(s.tokenProvider.acquire).not.toHaveBeenCalled();
+    expect(s.fetchImpl).not.toHaveBeenCalled();
   });
   it('locks pinned and bound mailboxes before Graph', async () => {
     for (const overrides of [{ M365_APP_ONLY_PINNED_MAILBOX: 'other@acme.com' }, {}]) {
