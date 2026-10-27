@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           # Throwaway value for this job only; not a credential.
-          S2S="test-s2s-secret-0123456789abcdef0123"
+          S2S="$(openssl rand -hex 32)"
           docker run -d --name sm -p 18080:8080 -e CONDUIT_S2S_SECRET="$S2S" m365-shared-mailbox-mcp:ci
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1 && break
