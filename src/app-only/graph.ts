@@ -113,7 +113,8 @@ export async function callGraph(
                 : Math.max(0, Math.ceil((Date.parse(raw) - options.now()) / 1000));
           const delay = Number.isFinite(seconds) ? seconds : 0;
           await response.body?.cancel();
-          if (raw !== null && delay <= 10 && attempt === 0) {
+          // Retry only reads: repeating a mutation can duplicate side effects.
+          if (route.method === 'GET' && raw !== null && delay <= 10 && attempt === 0) {
             await (options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(
               delay * 1000
             );

@@ -139,18 +139,18 @@ Message and event bodies are returned as text, capped, and wrapped in
 
 ## Errors
 
-| Code                                             | When                                                              |
-| ------------------------------------------------ | ----------------------------------------------------------------- |
-| `401 unauthorized`                               | Missing or invalid S2S header                                     |
-| `400 bad_credentials:<field>`                    | Malformed credential header (`401` for a missing mailbox header)  |
-| `401 auth_failed:secret_expired`                 | `AADSTS7000222`                                                   |
-| `401 auth_failed:invalid_client`                 | `AADSTS7000215` (wrong secret), certificate errors                |
-| `401 auth_failed:tenant_or_app`                  | `AADSTS90002` / `AADSTS700016`, or a token for another tenant/app |
-| `403 tenant_wide_consent_detected`               | See below                                                         |
-| `403 mailbox_mismatch`                           | See [Mailbox lock](#mailbox-lock)                                 |
-| `graph_forbidden:check_exchange_rbac_scope`      | Graph 403: the RBAC scope does not cover this mailbox or action   |
-| `graph_throttled:retry_after=<s>`                | Graph 429/503. Retried once when the wait is 10 s or less         |
-| `graph_not_found`, `graph_error:<status>:<code>` | Other Graph failures                                              |
+| Code                                             | When                                                                                                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401 unauthorized`                               | Missing or invalid S2S header                                                                                                                         |
+| `400 bad_credentials:<field>`                    | Malformed credential header (`401` for a missing mailbox header)                                                                                      |
+| `401 auth_failed:secret_expired`                 | `AADSTS7000222`                                                                                                                                       |
+| `401 auth_failed:invalid_client`                 | `AADSTS7000215` (wrong secret), certificate errors                                                                                                    |
+| `401 auth_failed:tenant_or_app`                  | `AADSTS90002` / `AADSTS700016`, or a token for another tenant/app                                                                                     |
+| `403 tenant_wide_consent_detected`               | See below                                                                                                                                             |
+| `403 mailbox_mismatch`                           | See [Mailbox lock](#mailbox-lock)                                                                                                                     |
+| `graph_forbidden:check_exchange_rbac_scope`      | Graph 403: the RBAC scope does not cover this mailbox or action                                                                                       |
+| `graph_throttled:retry_after=<s>`                | Graph 429/503. Only GET requests retry once when Retry-After is present and the wait is 10 s or less; other methods fail immediately without retrying |
+| `graph_not_found`, `graph_error:<status>:<code>` | Other Graph failures                                                                                                                                  |
 
 Request-level errors are JSON-RPC errors with code `-32001`; Graph errors are tool results with
 `isError: true`. Logs never contain secrets, keys, tokens, argument values or message bodies.

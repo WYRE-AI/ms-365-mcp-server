@@ -52,11 +52,12 @@ async function setup(
     drop: vi.fn(),
   };
   const logs: string[] = [];
+  const sleep = vi.fn(async () => {});
   const app = createAppOnlyServer({
     env: { ...env, ...overrides },
     fetchImpl,
     tokenProvider,
-    sleep: async () => {},
+    sleep,
     logOutput: (line) => logs.push(line),
   });
   servers.push(app.server);
@@ -89,7 +90,7 @@ async function setup(
     });
   const call = (name: string, args: unknown = {}, patch = {}) =>
     post({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }, patch);
-  return { post, call, fetchImpl, tokenProvider, logs };
+  return { post, call, fetchImpl, tokenProvider, logs, sleep };
 }
 const rpc = (method: string) => ({ jsonrpc: '2.0', id: 1, method });
 describe('contract', () => {
@@ -402,6 +403,42 @@ describe('HTTP boundaries', () => {
     const s = await setup({ M365_APP_ONLY_MAX_REQUEST_BYTES: '10' });
     expect((await s.post(rpc('tools/list'))).status).toBe(413);
   });
+});
+describe('security round 1: F4 no retry for non-idempotent calls', () => {
+  for (const status of [429, 503]) {
+    for (const name of [
+      'send-mail',
+      'reply-mail-message',
+      'forward-mail-message',
+      'send-draft-message',
+      'create-draft-email',
+      'move-mail-message',
+      'update-mail-message',
+    ]) {
+      it(`${name} does not retry ${status}`, async () => {
+        const s = await setup(
+          { M365_APP_ONLY_MAX_TIER: 'admin' },
+          () => new Response('', { status, headers: { 'retry-after': '1' } })
+        );
+        const args = fixture.tools.find((tool) => tool.name === name)!.validExample;
+        const result = (await s.call(name, args)).body.result;
+        expect(JSON.parse(result.content[0].text).error).toBe('graph_throttled:retry_after=1');
+        expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+        expect(s.sleep).not.toHaveBeenCalled();
+      });
+    }
+    it(`list-mail-messages still retries ${status} once`, async () => {
+      const s = await setup(
+        {},
+        () => new Response('', { status, headers: { 'retry-after': '1' } })
+      );
+      const args = fixture.tools.find((tool) => tool.name === 'list-mail-messages')!.validExample;
+      const result = (await s.call('list-mail-messages', args)).body.result;
+      expect(JSON.parse(result.content[0].text).error).toBe('graph_throttled:retry_after=1');
+      expect(s.fetchImpl).toHaveBeenCalledTimes(2);
+      expect(s.sleep).toHaveBeenCalledExactlyOnceWith(1000);
+    });
+  }
 });
 describe('Graph', () => {
   for (const [status, error] of [
@@ -760,7 +797,7 @@ describe('additional security boundaries', () => {
           })
         : new Response(null, { status: 204 })
     );
-    const result = (await s.call('delete-mail-message', { messageId: 'abc' })).body.result;
+    const result = (await s.call('list-mail-messages')).body.result;
     expect(result.isError).not.toBe(true);
     expect(JSON.parse(result.content[0].text)).toEqual({ ok: true });
     expect(s.fetchImpl).toHaveBeenCalledTimes(2);
