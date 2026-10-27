@@ -383,7 +383,11 @@ describe('HTTP boundaries', () => {
   it('locks pinned and bound mailboxes before Graph', async () => {
     for (const overrides of [{ M365_APP_ONLY_PINNED_MAILBOX: 'other@acme.com' }, {}]) {
       const s = await setup(overrides);
-      if (!('M365_APP_ONLY_PINNED_MAILBOX' in overrides)) await s.post(rpc('tools/list'));
+      if (!('M365_APP_ONLY_PINNED_MAILBOX' in overrides)) {
+        await s.call('list-mail-messages');
+        s.fetchImpl.mockClear();
+        s.tokenProvider.acquire.mockClear();
+      }
       const r = await s.call('list-mail-messages', {}, { 'x-m365-mailbox': 'else@acme.com' });
       expect(r.status).toBe(403);
       expect(r.body.error.message).toBe('mailbox_mismatch');
@@ -943,5 +947,57 @@ describe('security round 1: F3 consent', () => {
         },
       })
     );
+  });
+});
+
+describe('security round 1: F5 binding after auth', () => {
+  const mailboxB = { 'x-m365-mailbox': 'other@acme.com' };
+
+  it('does not bind on tools/list', async () => {
+    const s = await setup();
+    expect((await s.post(rpc('tools/list'))).body.error).toBeUndefined();
+    expect(s.tokenProvider.acquire).not.toHaveBeenCalled();
+    const r = await s.call('list-mail-messages', {}, mailboxB);
+    expect(r.body.error).toBeUndefined();
+    expect(r.body.result.isError).not.toBe(true);
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [401, 'auth_failed:invalid_client'],
+    [403, 'tenant_wide_consent_detected'],
+  ] as const)('does not bind after acquisition fails with %s %s', async (status, message) => {
+    const s = await setup();
+    s.tokenProvider.acquire.mockRejectedValueOnce(new AppOnlyError(status, message));
+    const rejected = await s.call('list-mail-messages');
+    expect(rejected.status).toBe(status);
+    expect(rejected.body.error.message).toBe(message);
+    expect(s.fetchImpl).not.toHaveBeenCalled();
+    const r = await s.call('list-mail-messages', {}, mailboxB);
+    expect(r.body.error).toBeUndefined();
+    expect(r.body.result.isError).not.toBe(true);
+    expect(s.tokenProvider.acquire).toHaveBeenCalledTimes(2);
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a different mailbox after successful acquisition', async () => {
+    const s = await setup();
+    const first = await s.call('list-mail-messages');
+    expect(first.body.error).toBeUndefined();
+    expect(first.body.result.isError).not.toBe(true);
+    const r = await s.call('list-mail-messages', {}, mailboxB);
+    expect(r.status).toBe(403);
+    expect(r.body.error.message).toBe('mailbox_mismatch');
+    expect(s.tokenProvider.acquire).toHaveBeenCalledTimes(1);
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a pinned mailbox mismatch before acquisition', async () => {
+    const s = await setup({ M365_APP_ONLY_PINNED_MAILBOX: 'shared@acme.com' });
+    const r = await s.call('list-mail-messages', {}, mailboxB);
+    expect(r.status).toBe(403);
+    expect(r.body.error.message).toBe('mailbox_mismatch');
+    expect(s.tokenProvider.acquire).not.toHaveBeenCalled();
+    expect(s.fetchImpl).not.toHaveBeenCalled();
   });
 });

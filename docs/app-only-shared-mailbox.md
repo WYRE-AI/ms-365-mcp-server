@@ -19,20 +19,20 @@ mailbox. Do **not** grant tenant-wide Microsoft Graph `Mail.*`, `Calendars.*` or
   No other CLI flag is accepted in this mode, and startup fails if upstream auth settings such as
   extra scopes, trust-proxy auth, OBO or OAuth are present in the environment.
 
-| Variable                           | Default            | Meaning                                                                                                                    |
-| ---------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `CONDUIT_S2S_SECRET`               | required           | Gateway service-to-service secret. Empty or a known placeholder refuses startup.                                           |
-| `MCP_ALLOW_INSECURE_DEV`           | unset              | `1` allows an empty secret for local development only, and forces `127.0.0.1`.                                             |
-| `MCP_HTTP_HOST` / `MCP_HTTP_PORT`  | `0.0.0.0` / `8080` | Listen address.                                                                                                            |
-| `M365_APP_ONLY_MAX_TIER`           | `write`            | `read`, `write` or `admin`. Tools above the tier are not listed and cannot be called. `READ_ONLY_MODE=true` forces `read`. |
-| `M365_APP_ONLY_PINNED_MAILBOX`     | unset              | Optional: the only mailbox this instance will serve.                                                                       |
-| `M365_APP_ONLY_BIND_MAILBOX`       | `1`                | Bind each credential to the first mailbox it is used with (see [Mailbox lock](#mailbox-lock)).                             |
-| `M365_APP_ONLY_BIND_TTL_SECONDS`   | `3600`             | Idle lifetime of that binding.                                                                                             |
-| `M365_APP_ONLY_MAX_BODY_CHARS`     | `20000`            | Per-body cap after HTML-to-text.                                                                                           |
-| `M365_APP_ONLY_MAX_RESPONSE_BYTES` | `4000000`          | Cap on any Graph response read.                                                                                            |
-| `M365_APP_ONLY_MAX_PAGES`          | `10`               | Page cap for `fetchAllPages`.                                                                                              |
-| `M365_APP_ONLY_MAX_REQUEST_BYTES`  | `5000000`          | Cap on an incoming MCP request body.                                                                                       |
-| `M365_APP_ONLY_LOG_LEVEL`          | `info`             | JSON log level.                                                                                                            |
+| Variable                           | Default            | Meaning                                                                                                                                                   |
+| ---------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CONDUIT_S2S_SECRET`               | required           | Gateway service-to-service secret. Empty or a known placeholder refuses startup.                                                                          |
+| `MCP_ALLOW_INSECURE_DEV`           | unset              | `1` allows an empty secret for local development only, and forces `127.0.0.1`.                                                                            |
+| `MCP_HTTP_HOST` / `MCP_HTTP_PORT`  | `0.0.0.0` / `8080` | Listen address.                                                                                                                                           |
+| `M365_APP_ONLY_MAX_TIER`           | `write`            | `read`, `write` or `admin`. Tools above the tier are not listed and cannot be called. `READ_ONLY_MODE=true` forces `read`.                                |
+| `M365_APP_ONLY_PINNED_MAILBOX`     | unset              | The hard pin: the only mailbox this instance will serve. Set in production; one instance per mailbox.                                                     |
+| `M365_APP_ONLY_BIND_MAILBOX`       | `1`                | Best-effort, in-memory, per-process secondary guard; binds only after successful token acquisition and consent check (see [Mailbox lock](#mailbox-lock)). |
+| `M365_APP_ONLY_BIND_TTL_SECONDS`   | `3600`             | Lifetime since the last successful token acquisition and consent check for that binding.                                                                  |
+| `M365_APP_ONLY_MAX_BODY_CHARS`     | `20000`            | Per-body cap after HTML-to-text.                                                                                                                          |
+| `M365_APP_ONLY_MAX_RESPONSE_BYTES` | `4000000`          | Cap on any Graph response read.                                                                                                                           |
+| `M365_APP_ONLY_MAX_PAGES`          | `10`               | Page cap for `fetchAllPages`.                                                                                                                             |
+| `M365_APP_ONLY_MAX_REQUEST_BYTES`  | `5000000`          | Cap on an incoming MCP request body.                                                                                                                      |
+| `M365_APP_ONLY_LOG_LEVEL`          | `info`             | JSON log level.                                                                                                                                           |
 
 ## HTTP surface
 
@@ -77,10 +77,18 @@ parameter passed through `encodeURIComponent`. There is no `/me`, no default mai
 `mailbox_mismatch` (HTTP 403, before any Graph call) is returned when:
 
 - `M365_APP_ONLY_PINNED_MAILBOX` is set and the header differs;
-- the same credential was used with a different mailbox within the binding TTL;
+- the same credential has an unexpired binding to a different mailbox;
 - a `fetchAllPages` next link points anywhere other than the same mailbox.
 
-Exchange RBAC for Applications is the real boundary; the lock is defense in depth.
+`M365_APP_ONLY_PINNED_MAILBOX` is the hard pin. Set it in production and run one instance per
+mailbox. It rejects a different mailbox before token acquisition.
+
+The credential binding is a best-effort, in-memory, per-process secondary guard. It is created or
+refreshed only on `tools/call` after successful token acquisition and the consent check. Failed
+authentication or consent checks, `tools/list`, and `initialize` never establish or refresh it.
+Bindings expire after the configured TTL, are lost on restart, and are not shared across processes.
+
+Exchange RBAC for Applications is the authorization boundary; these guards are defense in depth.
 
 ## Tools
 

@@ -109,13 +109,14 @@ export function createAppOnlyServer(options: AppOnlyOptions = {}) {
         for (const [k, v] of bindings) if (now() - v.at >= bindingTtl) bindings.delete(k);
         const bound = bindings.get(key);
         if (bound && bound.mailbox !== c.mailbox) throw new AppOnlyError(403, 'mailbox_mismatch');
-        bindings.set(key, { mailbox: c.mailbox, at: now() });
       }
       let token: string | undefined;
       if (body.method === 'tools/call') {
         tool = typeof body.params?.name === 'string' ? body.params.name : '';
         validate(tool!, body.params?.arguments);
         token = await provider.acquire(c);
+        if (env.M365_APP_ONLY_BIND_MAILBOX !== '0')
+          bindings.set(key, { mailbox: c.mailbox, at: now() });
       }
       const mcp = new Server(
         { name: 'm365-app-only-shared-mailbox', version: '1.0.0' },
