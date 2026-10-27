@@ -1072,6 +1072,44 @@ describe('security round 1: F5 binding after auth', () => {
   });
 });
 
+describe('security round 2: R2-1', () => {
+  it('binds only one mailbox when first-use token acquisitions overlap', async () => {
+    const s = await setup();
+    const acquires: ((token: string) => void)[] = [];
+    let bothAcquiring!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      bothAcquiring = resolve;
+    });
+    s.tokenProvider.acquire.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          acquires.push(resolve);
+          if (acquires.length === 2) bothAcquiring();
+        })
+    );
+
+    const pending = Promise.all(
+      ['a@acme.com', 'b@acme.com'].map((mailbox) =>
+        s.call('list-mail-messages', {}, { 'x-m365-mailbox': mailbox })
+      )
+    );
+    await ready;
+    expect(s.fetchImpl).not.toHaveBeenCalled();
+    for (const resolve of acquires) resolve('private-access-token');
+    const results = await pending;
+
+    const succeeded = results.filter((r) => !r.body.error && r.body.result?.isError !== true);
+    expect(succeeded).toHaveLength(1);
+    expect(succeeded[0].status).toBe(200);
+    const rejected = results.filter((r) => r.body.error);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].status).toBe(403);
+    expect(rejected[0].body.error.message).toBe('mailbox_mismatch');
+    expect(s.tokenProvider.acquire).toHaveBeenCalledTimes(2);
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('security round 1: F7 nextLink', () => {
   const base = 'https://graph.microsoft.com/v1.0/users/shared%40acme.com/messages';
   it.each([
