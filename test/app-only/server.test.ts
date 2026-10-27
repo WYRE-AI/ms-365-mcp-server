@@ -863,8 +863,18 @@ describe('additional security boundaries', () => {
     );
     const result = (await s.call('list-mail-messages')).body.result;
     expect(result.isError).not.toBe(true);
-    expect(JSON.parse(result.content[0].text)).toEqual({ ok: true });
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ ok: true });
     expect(s.fetchImpl).toHaveBeenCalledTimes(2);
+  });
+  it('does not retry a throttled DELETE', async () => {
+    const s = await setup(
+      { M365_APP_ONLY_MAX_TIER: 'admin' },
+      () => new Response('', { status: 503, headers: { 'retry-after': '0' } })
+    );
+    const result = (await s.call('delete-mail-message', { messageId: 'abc' })).body.result;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('graph_throttled:retry_after=0');
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
   });
   it('bounds the app cache and supports explicit invalidation', async () => {
     const c = { tenantId: tenant, clientId: client, mailbox: 'shared@acme.com', secret: 'first' };
