@@ -1274,8 +1274,6 @@ describe('security round 2: R2-2', () => {
     ['$count=true&$skip=1', { count: true }, true],
     ['$skip=1', { search: '"phrase"' }, false],
     ['$skip=1', { count: true }, false],
-    ['$skip=1', { startDateTime: '2026-01-01T00:00:00Z' }, false],
-    ['$skip=1', { endDateTime: '2026-02-01T00:00:00Z' }, false],
   ])('validates query preservation for %s with %j (allowed: %s)', async (query, args, allowed) => {
     let page = 0;
     const next = `${base}?${query}`;
@@ -1295,6 +1293,42 @@ describe('security round 2: R2-2', () => {
     if (allowed) {
       expect(result.isError).not.toBe(true);
       expect(JSON.parse(result.content[0].text).value).toEqual([{ id: 1 }, { id: 2 }]);
+      expect(s.fetchImpl).toHaveBeenCalledTimes(2);
+      expect(s.fetchImpl.mock.lastCall?.[0]).toBe(next);
+    } else {
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toBe('graph_error:next_link_refused');
+      expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  const view = 'https://graph.microsoft.com/v1.0/users/shared%40acme.com/calendarView';
+  const window = { startDateTime: '2026-01-01T00:00:00Z', endDateTime: '2026-02-01T00:00:00Z' };
+  it.each([
+    ['$skip=1', false],
+    ['$skip=1&startDateTime=2026-01-01T00%3A00%3A00Z', false],
+    ['$skip=1&endDateTime=2026-02-01T00%3A00%3A00Z', false],
+    ['$skip=1&startDateTime=2025-01-01T00%3A00%3A00Z&endDateTime=2026-02-01T00%3A00%3A00Z', false],
+    ['$skip=1&startDateTime=2026-01-01T00%3A00%3A00Z&endDateTime=2026-02-01T00%3A00%3A00Z', true],
+    ['$skiptoken=next', true],
+  ])('calendarView time window preservation for %s (allowed: %s)', async (query, allowed) => {
+    let page = 0;
+    const next = `${view}?${query}`;
+    const s = await setup(
+      {},
+      () =>
+        new Response(
+          JSON.stringify({
+            value: [{ id: ++page }],
+            ...(page === 1 ? { '@odata.nextLink': next } : {}),
+          })
+        )
+    );
+    const response = await s.call('get-calendar-view', { ...window, fetchAllPages: true });
+    expect(response.body.error).toBeUndefined();
+    const result = response.body.result;
+    if (allowed) {
+      expect(result.isError).not.toBe(true);
       expect(s.fetchImpl).toHaveBeenCalledTimes(2);
       expect(s.fetchImpl.mock.lastCall?.[0]).toBe(next);
     } else {
