@@ -1338,3 +1338,44 @@ describe('security round 2: R2-2', () => {
     }
   });
 });
+
+describe('security round 3: R3-1', () => {
+  const base = 'https://graph.microsoft.com/v1.0/users/shared%40acme.com/messages';
+  const filtered = { filter: 'isRead eq false', select: ['id', 'subject'] };
+  it.each([
+    ['$skipToken=next', filtered, true],
+    ['$SkipToken=next', filtered, true],
+    ['$DeltaToken=x', filtered, true],
+    ['$skipToken=a&$skiptoken=b', filtered, false],
+    ['$skip=10&$Filter=isRead%20eq%20false&$select=id%2Csubject', filtered, true],
+    ['$filter=x&$FILTER=x', { filter: 'x' }, false],
+    ['$Expand=attachments', {}, false],
+    ['$skipToken=next&$Search=%22changed%22', { search: '"phrase"' }, false],
+  ])('validates query preservation for %s with %j (allowed: %s)', async (query, args, allowed) => {
+    let page = 0;
+    const next = `${base}?${query}`;
+    const s = await setup(
+      {},
+      () =>
+        new Response(
+          JSON.stringify({
+            value: [{ id: ++page }],
+            ...(page === 1 ? { '@odata.nextLink': next } : {}),
+          })
+        )
+    );
+    const response = await s.call('list-mail-messages', { ...args, fetchAllPages: true });
+    expect(response.body.error).toBeUndefined();
+    const result = response.body.result;
+    if (allowed) {
+      expect(result.isError).not.toBe(true);
+      expect(JSON.parse(result.content[0].text).value).toEqual([{ id: 1 }, { id: 2 }]);
+      expect(s.fetchImpl).toHaveBeenCalledTimes(2);
+      expect(s.fetchImpl.mock.lastCall?.[0]).toBe(next);
+    } else {
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toBe('graph_error:next_link_refused');
+      expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+    }
+  });
+});

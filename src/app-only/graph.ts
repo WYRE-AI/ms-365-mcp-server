@@ -201,9 +201,16 @@ export async function callGraph(
           '$search',
           '$count',
         ];
+        const canonicalQueryKeys = new Map(
+          ['$skiptoken', '$deltatoken', '$skip', '$top', ...preservedQueryKeys].map((key) => [
+            key.toLowerCase(),
+            key,
+          ])
+        );
         const seen = new Set<string>();
-        for (const [key, value] of nextUrl.searchParams) {
-          if (seen.has(key)) throw new Error();
+        for (const [rawKey, value] of nextUrl.searchParams) {
+          const key = canonicalQueryKeys.get(rawKey.toLowerCase());
+          if (!key || seen.has(key)) throw new Error();
           seen.add(key);
           if (key === '$skiptoken' || key === '$deltatoken') continue;
           if (key === '$skip' || key === '$top') {

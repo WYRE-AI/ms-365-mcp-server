@@ -159,19 +159,19 @@ folder and calendar names, are unchanged.
 
 ## Errors
 
-| Code                                             | When                                                                                                                                                     |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `401 unauthorized`                               | Missing or invalid S2S header                                                                                                                            |
-| `400 bad_credentials:<field>`                    | Malformed credential header (`401` for a missing mailbox header)                                                                                         |
-| `401 auth_failed:secret_expired`                 | `AADSTS7000222`                                                                                                                                          |
-| `401 auth_failed:invalid_client`                 | `AADSTS7000215` (wrong secret), certificate errors                                                                                                       |
-| `401 auth_failed:tenant_or_app`                  | `AADSTS90002` / `AADSTS700016`, or a token for another tenant/app                                                                                        |
-| `403 tenant_wide_consent_detected`               | See below                                                                                                                                                |
-| `403 mailbox_mismatch`                           | See [Mailbox lock](#mailbox-lock)                                                                                                                        |
-| `graph_forbidden:check_exchange_rbac_scope`      | Graph 403: the RBAC scope does not cover this mailbox or action                                                                                          |
-| `graph_throttled:retry_after=<s>`                | Graph 429/503. Only GET requests retry once when Retry-After is present and the wait is 10 s or less; other methods fail immediately without retrying    |
-| `graph_error:next_link_refused`                  | Paging link has an unsafe origin, path, or query; only the original collection with allowed paging options and identical echoed query values is accepted |
-| `graph_not_found`, `graph_error:<status>:<code>` | Other Graph failures                                                                                                                                     |
+| Code                                             | When                                                                                                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401 unauthorized`                               | Missing or invalid S2S header                                                                                                                         |
+| `400 bad_credentials:<field>`                    | Malformed credential header (`401` for a missing mailbox header)                                                                                      |
+| `401 auth_failed:secret_expired`                 | `AADSTS7000222`                                                                                                                                       |
+| `401 auth_failed:invalid_client`                 | `AADSTS7000215` (wrong secret), certificate errors                                                                                                    |
+| `401 auth_failed:tenant_or_app`                  | `AADSTS90002` / `AADSTS700016`, or a token for another tenant/app                                                                                     |
+| `403 tenant_wide_consent_detected`               | See below                                                                                                                                             |
+| `403 mailbox_mismatch`                           | See [Mailbox lock](#mailbox-lock)                                                                                                                     |
+| `graph_forbidden:check_exchange_rbac_scope`      | Graph 403: the RBAC scope does not cover this mailbox or action                                                                                       |
+| `graph_throttled:retry_after=<s>`                | Graph 429/503. Only GET requests retry once when Retry-After is present and the wait is 10 s or less; other methods fail immediately without retrying |
+| `graph_error:next_link_refused`                  | Unsafe paging origin, path, or query; requires original collection and allowed options. Option names match case-insensitively; values exactly         |
+| `graph_not_found`, `graph_error:<status>:<code>` | Other Graph failures                                                                                                                                  |
 
 Without `$skiptoken` or `$deltatoken`, links must preserve every original `$filter`, `$select`, `$orderby`, `startDateTime`, `endDateTime`, `$search`, and `$count` value. `$search` and `$count` are allowed only as unchanged echoes of parameters present exactly once in the original request; `$expand` and other unsupported options are refused
 
