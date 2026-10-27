@@ -161,6 +161,8 @@ Message and event bodies are returned as text, capped, and wrapped in
 | `graph_error:next_link_refused`                  | Paging link has an unsafe origin, path, or query; only the original collection with allowed paging options and identical echoed query values is accepted |
 | `graph_not_found`, `graph_error:<status>:<code>` | Other Graph failures                                                                                                                                     |
 
+Without `$skiptoken` or `$deltatoken`, links must preserve every original `$filter`, `$select`, `$orderby`, `startDateTime`, `endDateTime`, `$search`, and `$count` value. `$search` and `$count` are allowed only as unchanged echoes of parameters present exactly once in the original request; `$expand` and other unsupported options are refused
+
 Request-level errors are JSON-RPC errors with code `-32001`; Graph errors are tool results with
 `isError: true`. Logs never contain secrets, keys, tokens, argument values or message bodies.
 

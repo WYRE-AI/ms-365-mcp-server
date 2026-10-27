@@ -1149,7 +1149,7 @@ describe('security round 1: F7 nextLink', () => {
     [`${base}?$top=1001`, {}],
     [`${base}?$skiptoken=a&$skiptoken=b`, {}],
     [`${base}?$skip=-1`, {}],
-    [`${base}?$count=true`, { count: true }],
+    [`${base}?$count=true`, {}],
     [`${base}?unknown=value`, {}],
     [`${base}?$select=id&$select=id`, { select: ['id'] }],
     [base.replace('shared%40acme.com', 'other%40acme.com'), {}],
@@ -1176,5 +1176,52 @@ describe('security round 1: F7 nextLink', () => {
       'graph_error:next_link_refused'
     );
     expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('security round 2: R2-2', () => {
+  const base = 'https://graph.microsoft.com/v1.0/users/shared%40acme.com/messages';
+  const filtered = { filter: 'isRead eq false', select: ['id', 'subject'] };
+  it.each([
+    ['$skip=1', filtered, false],
+    ['$skip=10&$filter=isRead%20eq%20false&$select=id%2Csubject', filtered, true],
+    ['$skiptoken=next', filtered, true],
+    ['$deltatoken=next', filtered, true],
+    ['$skip=1', { orderby: 'receivedDateTime desc' }, false],
+    ['$search=%22phrase%22&$skiptoken=next', { search: '"phrase"' }, true],
+    ['$search=%22changed%22&$skiptoken=next', { search: '"phrase"' }, false],
+    ['$search=%22phrase%22&$skiptoken=next', {}, false],
+    ['$count=true&$skiptoken=next', {}, false],
+    ['$count=true&$skip=1', { count: true }, true],
+    ['$skip=1', { search: '"phrase"' }, false],
+    ['$skip=1', { count: true }, false],
+    ['$skip=1', { startDateTime: '2026-01-01T00:00:00Z' }, false],
+    ['$skip=1', { endDateTime: '2026-02-01T00:00:00Z' }, false],
+  ])('validates query preservation for %s with %j (allowed: %s)', async (query, args, allowed) => {
+    let page = 0;
+    const next = `${base}?${query}`;
+    const s = await setup(
+      {},
+      () =>
+        new Response(
+          JSON.stringify({
+            value: [{ id: ++page }],
+            ...(page === 1 ? { '@odata.nextLink': next } : {}),
+          })
+        )
+    );
+    const response = await s.call('list-mail-messages', { ...args, fetchAllPages: true });
+    expect(response.body.error).toBeUndefined();
+    const result = response.body.result;
+    if (allowed) {
+      expect(result.isError).not.toBe(true);
+      expect(JSON.parse(result.content[0].text).value).toEqual([{ id: 1 }, { id: 2 }]);
+      expect(s.fetchImpl).toHaveBeenCalledTimes(2);
+      expect(s.fetchImpl.mock.lastCall?.[0]).toBe(next);
+    } else {
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toBe('graph_error:next_link_refused');
+      expect(s.fetchImpl).toHaveBeenCalledTimes(1);
+    }
   });
 });

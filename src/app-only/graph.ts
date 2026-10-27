@@ -192,6 +192,15 @@ export async function callGraph(
           decodeURIComponent(nextUrl.pathname).toLowerCase() !== originalPath
         )
           throw new Error();
+        const preservedQueryKeys = [
+          '$select',
+          '$filter',
+          '$orderby',
+          'startDateTime',
+          'endDateTime',
+          '$search',
+          '$count',
+        ];
         const seen = new Set<string>();
         for (const [key, value] of nextUrl.searchParams) {
           if (seen.has(key)) throw new Error();
@@ -207,11 +216,16 @@ export async function callGraph(
             continue;
           }
           if (
-            !['$select', '$filter', '$orderby', 'startDateTime', 'endDateTime'].includes(key) ||
+            !preservedQueryKeys.includes(key) ||
             original.searchParams.getAll(key).length !== 1 ||
             original.searchParams.get(key) !== value
           )
             throw new Error();
+        }
+        if (!seen.has('$skiptoken') && !seen.has('$deltatoken')) {
+          for (const key of preservedQueryKeys) {
+            if (original.searchParams.has(key) && !seen.has(key)) throw new Error();
+          }
         }
       } catch {
         throw new Error('graph_error:next_link_refused');
