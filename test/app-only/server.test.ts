@@ -562,7 +562,7 @@ describe('security round 1: F6 guard', () => {
         (MCP_ALLOW_INSECURE_DEV) => {
           expect(() =>
             guardAppOnly({ ...env, NODE_ENV, CONDUIT_S2S_SECRET, MCP_ALLOW_INSECURE_DEV }, [])
-          ).toThrow('MCP_ALLOW_INSECURE_DEV is refused when NODE_ENV=production');
+          ).toThrow('MCP_ALLOW_INSECURE_DEV requires NODE_ENV=development');
         }
       );
   it.each(['', '0', 'false', 'FALSE'])('allows disabled insecure dev %s in production', (value) => {
@@ -570,7 +570,7 @@ describe('security round 1: F6 guard', () => {
       guardAppOnly({ ...env, NODE_ENV: 'production', MCP_ALLOW_INSECURE_DEV: value }, [])
     ).not.toThrow();
   });
-  it.each([undefined, 'development', 'test'])(
+  it.each(['development', 'Development', 'DEVELOPMENT'])(
     'forces loopback for empty-secret dev in %s',
     (NODE_ENV) => {
       expect(
@@ -591,14 +591,27 @@ describe('security round 1: F6 guard', () => {
     'requires exactly 1 for empty-secret dev (%s)',
     (value) => {
       expect(() =>
-        guardAppOnly({ ...env, CONDUIT_S2S_SECRET: '', MCP_ALLOW_INSECURE_DEV: value }, [])
+        guardAppOnly(
+          {
+            ...env,
+            NODE_ENV: 'development',
+            CONDUIT_S2S_SECRET: '',
+            MCP_ALLOW_INSECURE_DEV: value,
+          },
+          []
+        )
       ).toThrow('CONDUIT_S2S_SECRET is empty');
     }
   );
   it('rejects a 31-character secret after trimming even in insecure dev', () => {
     expect(() =>
       guardAppOnly(
-        { ...env, CONDUIT_S2S_SECRET: ` ${'x'.repeat(31)} `, MCP_ALLOW_INSECURE_DEV: '1' },
+        {
+          ...env,
+          NODE_ENV: 'development',
+          CONDUIT_S2S_SECRET: ` ${'x'.repeat(31)} `,
+          MCP_ALLOW_INSECURE_DEV: '1',
+        },
         []
       )
     ).toThrow('CONDUIT_S2S_SECRET must be at least 32 characters');
@@ -614,6 +627,58 @@ describe('security round 1: F6 guard', () => {
     );
   });
 });
+describe('security round 3: R3-2', () => {
+  const developmentEnvs = ['development', 'Development', 'DEVELOPMENT'];
+  const otherEnvs = [
+    undefined,
+    '',
+    'production',
+    'Production',
+    'test',
+    'dev',
+    'develop',
+    'developmnet',
+    ' development',
+  ];
+  for (const NODE_ENV of developmentEnvs)
+    it.each(['', secret])(
+      `allows insecure dev in ${NODE_ENV} with secret %s`,
+      (CONDUIT_S2S_SECRET) => {
+        expect(
+          guardAppOnly(
+            {
+              ...env,
+              NODE_ENV,
+              CONDUIT_S2S_SECRET,
+              MCP_ALLOW_INSECURE_DEV: '1',
+              MCP_HTTP_HOST: '0.0.0.0',
+            },
+            []
+          )
+        ).toEqual({
+          secret: CONDUIT_S2S_SECRET,
+          host: CONDUIT_S2S_SECRET ? '0.0.0.0' : '127.0.0.1',
+        });
+      }
+    );
+  for (const NODE_ENV of otherEnvs)
+    for (const CONDUIT_S2S_SECRET of ['', secret])
+      it.each(['1', 'true', 'TRUE', 'yes', ' '])(
+        `refuses insecure dev %s in ${NODE_ENV} with secret length ${CONDUIT_S2S_SECRET.length}`,
+        (MCP_ALLOW_INSECURE_DEV) => {
+          expect(() =>
+            guardAppOnly({ ...env, NODE_ENV, CONDUIT_S2S_SECRET, MCP_ALLOW_INSECURE_DEV }, [])
+          ).toThrow('MCP_ALLOW_INSECURE_DEV requires NODE_ENV=development');
+        }
+      );
+  for (const NODE_ENV of [...developmentEnvs, ...otherEnvs])
+    it.each(['0', 'false', 'FALSE', 'False', ''])(
+      `allows disabled insecure dev %s in ${NODE_ENV}`,
+      (MCP_ALLOW_INSECURE_DEV) => {
+        expect(() => guardAppOnly({ ...env, NODE_ENV, MCP_ALLOW_INSECURE_DEV }, [])).not.toThrow();
+      }
+    );
+});
 describe('pure security guards', () => {
   it('fails closed on startup arguments/env and placeholder secrets', () => {
     expect(() => guardAppOnly({}, [])).toThrow();
@@ -621,7 +686,13 @@ describe('pure security guards', () => {
       expect(() => guardAppOnly({ ...env, CONDUIT_S2S_SECRET: value }, [])).toThrow();
     expect(
       guardAppOnly(
-        { ...env, CONDUIT_S2S_SECRET: '', MCP_ALLOW_INSECURE_DEV: '1', MCP_HTTP_HOST: '0.0.0.0' },
+        {
+          ...env,
+          NODE_ENV: 'development',
+          CONDUIT_S2S_SECRET: '',
+          MCP_ALLOW_INSECURE_DEV: '1',
+          MCP_HTTP_HOST: '0.0.0.0',
+        },
         []
       ).host
     ).toBe('127.0.0.1');

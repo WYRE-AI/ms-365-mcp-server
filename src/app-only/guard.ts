@@ -29,11 +29,11 @@ export function guardAppOnly(
       throw new Error(`App-only mode refuses ${key}`);
   }
   if (
-    env.NODE_ENV?.toLowerCase() === 'production' &&
+    env.NODE_ENV?.toLowerCase() !== 'development' &&
     env.MCP_ALLOW_INSECURE_DEV &&
     !['0', 'false'].includes(env.MCP_ALLOW_INSECURE_DEV.toLowerCase())
   )
-    throw new Error('MCP_ALLOW_INSECURE_DEV is refused when NODE_ENV=production');
+    throw new Error('MCP_ALLOW_INSECURE_DEV requires NODE_ENV=development');
   const secret = (env.CONDUIT_S2S_SECRET ?? '').trim();
   if (
     [
