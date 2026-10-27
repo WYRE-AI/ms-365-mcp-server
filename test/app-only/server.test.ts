@@ -488,7 +488,7 @@ describe('Graph', () => {
       JSON.parse(
         (await p.call('list-mail-messages', { fetchAllPages: true })).body.result.content[0].text
       ).error
-    ).toBe('mailbox_mismatch');
+    ).toBe('graph_error:next_link_refused');
     expect(p.fetchImpl).toHaveBeenCalledTimes(1);
   });
   it('follows an uppercase same-mailbox nextLink with an unencoded @', async () => {
@@ -526,7 +526,7 @@ describe('Graph', () => {
     );
     const result = (await s.call('list-mail-messages', { fetchAllPages: true })).body.result;
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toBe('mailbox_mismatch');
+    expect(JSON.parse(result.content[0].text).error).toBe('graph_error:next_link_refused');
     expect(s.fetchImpl).toHaveBeenCalledTimes(1);
   });
   it('hides nextLink without paging and redacts logs', async () => {
@@ -831,7 +831,7 @@ describe('additional security boundaries', () => {
       JSON.parse(
         (await s.call('list-mail-messages', { fetchAllPages: true })).body.result.content[0].text
       ).error
-    ).toBe('mailbox_mismatch');
+    ).toBe('graph_error:next_link_refused');
     expect(s.fetchImpl).toHaveBeenCalledTimes(1);
   });
   it('builds typed query parameters and Prefer headers', async () => {
@@ -1059,5 +1059,74 @@ describe('security round 1: F5 binding after auth', () => {
     expect(r.body.error.message).toBe('mailbox_mismatch');
     expect(s.tokenProvider.acquire).not.toHaveBeenCalled();
     expect(s.fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('security round 1: F7 nextLink', () => {
+  const base = 'https://graph.microsoft.com/v1.0/users/shared%40acme.com/messages';
+  it.each([
+    ['$skiptoken=next', {}],
+    [
+      '$select=id%2Csubject&$filter=isRead%20eq%20false&$skip=10',
+      { select: ['id', 'subject'], filter: 'isRead eq false' },
+    ],
+    ['$top=5&$deltatoken=next', { top: 10 }],
+  ])('follows allowed paging query %s', async (query, args) => {
+    let page = 0;
+    const next = `${base}?${query}`;
+    const s = await setup(
+      {},
+      () =>
+        new Response(
+          JSON.stringify({
+            value: [{ id: ++page }],
+            ...(page === 1 ? { '@odata.nextLink': next } : {}),
+          })
+        )
+    );
+    const result = (await s.call('list-mail-messages', { ...args, fetchAllPages: true })).body
+      .result;
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(result.content[0].text).value).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(s.fetchImpl).toHaveBeenCalledTimes(2);
+    expect(s.fetchImpl.mock.lastCall?.[0]).toBe(next);
+  });
+
+  it.each([
+    [`${base}?$expand=attachments`, {}],
+    [base.replace('/messages', '/mailFolders'), {}],
+    [`${base}?$search=secret`, {}],
+    [`${base}?$filter=isRead%20eq%20true`, { filter: 'isRead eq false' }],
+    [`${base}?$top=11`, { top: 10 }],
+    [`${base}?$top=1001`, {}],
+    [`${base}?$skiptoken=a&$skiptoken=b`, {}],
+    [`${base}?$skip=-1`, {}],
+    [`${base}?$count=true`, { count: true }],
+    [`${base}?unknown=value`, {}],
+    [`${base}?$select=id&$select=id`, { select: ['id'] }],
+    [base.replace('shared%40acme.com', 'other%40acme.com'), {}],
+    [base.replace('https:', 'http:'), {}],
+    [base.replace('graph.microsoft.com', 'example.com'), {}],
+    [`${base}#fragment`, {}],
+    [`${base}#`, {}],
+    [base.replace('/messages', '/../shared%40acme.com/messages'), {}],
+  ])('refuses unsafe paging link %s before fetching again', async (next, args) => {
+    const s = await setup(
+      {},
+      () =>
+        new Response(
+          JSON.stringify({
+            value: [],
+            '@odata.nextLink': next,
+          })
+        )
+    );
+    const response = await s.call('list-mail-messages', { ...args, fetchAllPages: true });
+    expect(response.body.error).toBeUndefined();
+    expect(response.body.result.isError).toBe(true);
+    expect(JSON.parse(response.body.result.content[0].text).error).toBe(
+      'graph_error:next_link_refused'
+    );
+    expect(s.fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

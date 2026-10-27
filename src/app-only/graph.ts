@@ -71,6 +71,8 @@ export async function callGraph(
   }
 ): Promise<unknown> {
   let url = buildGraphUrl(route, args, c.mailbox);
+  const original = new URL(url);
+  const originalPath = decodeURIComponent(original.pathname).toLowerCase();
   const { headers } = queryArguments(args);
   if (route.method === 'GET')
     headers.Prefer = [headers.Prefer, 'outlook.body-content-type="text"']
@@ -176,21 +178,43 @@ export async function callGraph(
     if (next && args.fetchAllPages) {
       let nextUrl: URL;
       try {
-        if (typeof next !== 'string') throw new Error('mailbox_mismatch');
+        if (typeof next !== 'string') throw new Error();
+        // Check the raw path too: URL parsing normalizes traversal and backslashes.
+        const rawPath = next.split(/[?#]/, 1)[0];
+        if (/%2f|%5c|\\/i.test(rawPath) || decodeURIComponent(rawPath).includes('..'))
+          throw new Error();
         nextUrl = new URL(next);
-        const pathname = nextUrl.pathname;
-        const decoded = decodeURIComponent(pathname);
         if (
           nextUrl.origin !== 'https://graph.microsoft.com' ||
           nextUrl.username ||
           nextUrl.password ||
-          /%2f|%5c/i.test(pathname) ||
-          decoded.includes('..') ||
-          !decoded.toLowerCase().startsWith(`/v1.0/users/${c.mailbox}/`)
+          next.includes('#') ||
+          decodeURIComponent(nextUrl.pathname).toLowerCase() !== originalPath
         )
-          throw new Error('mailbox_mismatch');
+          throw new Error();
+        const seen = new Set<string>();
+        for (const [key, value] of nextUrl.searchParams) {
+          if (seen.has(key)) throw new Error();
+          seen.add(key);
+          if (key === '$skiptoken' || key === '$deltatoken') continue;
+          if (key === '$skip' || key === '$top') {
+            if (!/^\d+$/.test(value)) throw new Error();
+            if (
+              key === '$top' &&
+              BigInt(value) > BigInt(original.searchParams.get('$top') ?? '1000')
+            )
+              throw new Error();
+            continue;
+          }
+          if (
+            !['$select', '$filter', '$orderby', 'startDateTime', 'endDateTime'].includes(key) ||
+            original.searchParams.getAll(key).length !== 1 ||
+            original.searchParams.get(key) !== value
+          )
+            throw new Error();
+        }
       } catch {
-        throw new Error('mailbox_mismatch');
+        throw new Error('graph_error:next_link_refused');
       }
       if (page + 1 < maxPages) {
         url = nextUrl.href;
