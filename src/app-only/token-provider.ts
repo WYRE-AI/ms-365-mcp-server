@@ -19,15 +19,21 @@ export function checkConsent(token: string, c: Credentials): void {
   }
   if (p.tid !== c.tenantId || (p.appid ?? p.azp) !== c.clientId)
     throw new AppOnlyError(401, 'auth_failed:tenant_or_app');
-  const roles = Array.isArray(p.roles)
-    ? p.roles.filter(
-        (r): r is string =>
-          typeof r === 'string' && /^(Mail\.|Calendars\.|MailboxSettings\.)/.test(r)
-      )
-    : [];
-  if (roles.length)
+  const roles = p.roles;
+  const hasRoles = Array.isArray(roles)
+    ? roles.length > 0
+    : roles !== undefined && roles !== null && roles !== '';
+  if (hasRoles)
     throw new AppOnlyError(403, 'tenant_wide_consent_detected', -32001, {
-      roles,
+      roles: Array.isArray(roles)
+        ? roles
+            .filter((r): r is string => typeof r === 'string')
+            .slice(0, 20)
+            .map((r) => r.slice(0, 128))
+        : typeof roles === 'string'
+          ? [roles.slice(0, 128)]
+          : [],
+      rolesCount: Array.isArray(roles) ? roles.length : typeof roles === 'string' ? 1 : 0,
       fix: CONSENT_FIX,
     });
 }

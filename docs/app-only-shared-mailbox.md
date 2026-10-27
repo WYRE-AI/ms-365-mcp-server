@@ -157,11 +157,14 @@ Request-level errors are JSON-RPC errors with code `-32001`; Graph errors are to
 
 ## Tenant-wide consent check
 
-Each token's `roles` claim is decoded. If it holds any `Mail.*`, `Calendars.*` or
-`MailboxSettings.*` application role, the app can reach **every** mailbox in the tenant, and the
-server refuses with HTTP 403, JSON-RPC `-32001 tenant_wide_consent_detected`, listing the roles in
-`data.roles` and the fix in `data.fix`. Remove those Graph application permissions (and their admin
-consent) from the app registration and use the RBAC setup below.
+Each token's `roles` claim is decoded. Any application role in the token is refused, matching
+Conduit's rule: only an absent claim, `null`, `""`, or an empty array is accepted. Non-empty arrays
+and all other values are refused, including non-mail roles and malformed role types.
+The server refuses with HTTP 403, JSON-RPC `-32001 tenant_wide_consent_detected`. `data.roles`
+contains only string entries (at most 20, each capped to 128 characters); a string claim is reported
+as a single capped entry, and other types as an empty list. `data.rolesCount` reports the original
+array length, 1 for a string, or 0 for other types. The fix is in `data.fix`. Remove Graph application
+permissions (and their admin consent) from the app registration and use the RBAC setup below.
 
 ## Customer setup: Exchange Online RBAC for Applications
 

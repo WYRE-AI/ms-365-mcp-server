@@ -1,3 +1,5 @@
+import type { Credentials } from '../../src/app-only/credentials.js';
+import { AppOnlyError } from '../../src/app-only/errors.js';
 import { buildGraphUrl } from '../../src/app-only/graph.js';
 import { ROUTES } from '../../src/app-only/tools.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -845,5 +847,64 @@ describe('security round 1: F2 untrusted escaping', () => {
   it('caps cleaned and escaped display names at 256 chars plus the truncation marker', () => {
     const r = protectContent({ emailAddress: { name: 'x'.repeat(300) } }) as any;
     expect(r.emailAddress.name).toBe('x'.repeat(256) + '[truncated 44 chars]');
+  });
+});
+
+describe('security round 1: F3 consent', () => {
+  const c: Credentials = {
+    tenantId: tenant,
+    clientId: client,
+    mailbox: 'shared@acme.com',
+    secret: 'consent-test-secret',
+  };
+  const jwt = (claims: Record<string, unknown>) =>
+    `header.${Buffer.from(JSON.stringify({ tid: tenant, appid: client, ...claims })).toString('base64url')}.sig`;
+
+  it.each([{}, { roles: [] }, { roles: null }, { roles: '' }])(
+    'accepts empty or absent roles: %j',
+    (claims) => {
+      expect(() => checkConsent(jwt(claims), c)).not.toThrow();
+    }
+  );
+
+  it.each([
+    { roles: ['Mail.Read'] },
+    { roles: ['User.Read.All'] },
+    { roles: 'Mail.Read' },
+    { roles: ['x'] },
+    { roles: [1] },
+    { roles: { a: 1 } },
+    { roles: 0 },
+    { roles: false },
+  ])('rejects any populated roles claim: %j', (claims) => {
+    expect(() => checkConsent(jwt(claims), c)).toThrow(AppOnlyError);
+    expect(() => checkConsent(jwt(claims), c)).toThrowError(
+      expect.objectContaining({
+        status: 403,
+        message: 'tenant_wide_consent_detected',
+        code: -32001,
+      })
+    );
+  });
+
+  it.each([
+    {
+      roles: [1, 'x'.repeat(200), ...Array(25).fill('role')],
+      expected: ['x'.repeat(128), ...Array(19).fill('role')],
+      count: 27,
+    },
+    { roles: 'x'.repeat(200), expected: ['x'.repeat(128)], count: 1 },
+    { roles: [1], expected: [], count: 1 },
+    { roles: { a: 1 }, expected: [], count: 0 },
+  ])('sanitizes reported roles: %j', ({ roles, expected, count }) => {
+    expect(() => checkConsent(jwt({ roles }), c)).toThrowError(
+      expect.objectContaining({
+        data: {
+          roles: expected,
+          rolesCount: count,
+          fix: expect.stringContaining('Exchange Online RBAC'),
+        },
+      })
+    );
   });
 });
